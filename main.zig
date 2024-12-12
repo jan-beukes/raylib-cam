@@ -3,8 +3,8 @@ const rl = @import("raylib");
 const SDL = @import("SDL3.zig");
 const print = std.debug.print;
 
-var window_width: i32 = 640;
-var window_height: i32 = 480;
+var window_width: i32 = 800;
+var window_height: i32 = 600;
 
 var camera: ?*SDL.Camera = undefined;
 fn initCamera() !void {
@@ -34,12 +34,22 @@ fn initCamera() !void {
             best_format = formats[i];
         }
     }
-    print("{}\n", .{best_format.*});
+
     camera = SDL.OpenCamera(devices[0], best_format); //use first device
+
     SDL.free(devices);
     if (camera == null) {
         SDL.Log("Couldn't open camera: %s", SDL.GetError());
         return error.NoCameraBro;
+    }
+
+    // get spec
+    var spec: SDL.CameraSpec = undefined;
+    if (SDL.GetCameraFormat(camera, &spec)) {
+        const fwindow_width: f32 = @floatFromInt(window_width);
+        const fwidth: f32 = @floatFromInt(spec.width);
+        const fheight: f32 = @floatFromInt(spec.height);
+        window_height = @intFromFloat((fheight / fwidth) * fwindow_width);
     }
 }
 
@@ -81,24 +91,39 @@ fn updateFrameTexture(texture: *rl.Texture) !void {
     SDL.ReleaseCameraFrame(camera, frame);
 }
 
+fn loadShaderPrograms(alloc: std.mem.Allocator, dir_path: []const u8) ![]rl.Shader {
+    const dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    var dir_itter = dir.iterate();
+
+    var paths = std.ArrayList(rl.Shader).init(alloc);
+
+    while (try dir_itter.next()) |file| {
+        var path_buffer: [1024]u8 = undefined;
+        const abs_path = try dir.realpath(file.name, &path_buffer);
+        const abs_path_sent: [:0]u8 = try std.mem.concatWithSentinel(alloc, u8, &.{abs_path}, 0);
+        defer alloc.free(abs_path_sent);
+
+        const shader = rl.loadShader(null, abs_path_sent);
+        try paths.append(shader);
+    }
+
+    return try paths.toOwnedSlice();
+}
+
 pub fn main() !void {
+    const alloc = std.heap.c_allocator;
     try initCamera();
     defer SDL.Quit();
     defer SDL.CloseCamera(camera);
 
-    var spec: SDL.CameraSpec = undefined;
-    if (SDL.GetCameraFormat(camera, &spec)) {
-        window_width = spec.width;
-        window_height = spec.height;
-    } else {
-        print("FUCK: Couldnt Get Spec\n", .{});
-    }
-
+    rl.setTraceLogLevel(.log_warning);
     rl.initWindow(window_width, window_height, "EPIC CAMERA MAN");
     defer rl.closeWindow();
 
-    print("Format: {}\n", .{spec.format});
-    print("FPS: {}\n", .{spec.framerate_numerator});
+    // Shaders
+    const shaders: []rl.Shader = try loadShaderPrograms(alloc, "shaders");
+    defer alloc.free(shaders);
+
     var frame_texture: rl.Texture = std.mem.zeroes(rl.Texture);
     defer frame_texture.unload();
     while (!rl.windowShouldClose()) {
@@ -108,10 +133,25 @@ pub fn main() !void {
             print("Error updating frame texture {}\n", .{e});
         };
 
+        const time: usize = @intFromFloat(rl.getTime());
+        const shader_index: usize = ((time / 5) % shaders.len);
+        const rem = @rem(rl.getTime(), 5);
+
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
 
-        rl.drawTexture(frame_texture, 0, 0, rl.Color.white);
+        shaders[shader_index].activate();
+        const source = rl.Rectangle{ .x = 0, .y = 0, .width = @floatFromInt(frame_texture.width), .height = @floatFromInt(frame_texture.height) };
+        const dest = rl.Rectangle{ .x = 0, .y = 0, .width = @floatFromInt(window_width), .height = @floatFromInt(window_height) };
+        frame_texture.drawPro(source, dest, rl.Vector2.zero(), 0, rl.Color.white);
+        shaders[shader_index].deactivate();
+
+        const radius = 40.0;
+        const center = rl.Vector2{ .x = 10 + radius, .y = 50 + radius };
+        rl.drawCircleSector(center, radius, 0, @as(f32, @floatCast(rem)) * 360 / 5, 30, rl.Color.blue);
+
+        var buff: [128]u8 = undefined;
+        rl.drawText(try std.fmt.bufPrintZ(&buff, "Shader: {}", .{shader_index}), 10, 10, 32, rl.Color.blue);
 
         rl.endDrawing();
     }
