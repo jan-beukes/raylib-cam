@@ -1,7 +1,9 @@
 // namespaced SDL for zig
 
 // include SDL headers in c.zig
-const c = @import("c.zig").c;
+const c = @cImport({
+    @cInclude("SDL3/SDL.h");
+});
 
 // Functions
 pub const acos = c.SDL_acos;
@@ -504,7 +506,6 @@ pub const GetScancodeFromName = c.SDL_GetScancodeFromName;
 pub const GetScancodeName = c.SDL_GetScancodeName;
 pub const GetSemaphoreValue = c.SDL_GetSemaphoreValue;
 pub const GetSensorData = c.SDL_GetSensorData;
-pub const GetSensorFromID = c.SDL_GetSensorFromID;
 pub const GetSensorID = c.SDL_GetSensorID;
 pub const GetSensorName = c.SDL_GetSensorName;
 pub const GetSensorNameForID = c.SDL_GetSensorNameForID;
